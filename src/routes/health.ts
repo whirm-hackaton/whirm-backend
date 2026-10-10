@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import { HealthResponseSchema } from '../schemas/health.js'
 
 const health = new OpenAPIHono()
+
 health.openapi(
   createRoute({
     method: 'get',
@@ -17,4 +18,5 @@ health.openapi(
   }),
   (c) => c.json({ status: 'ok' as const }, 200),
 )
+
 export default health

@@ -37,11 +37,19 @@ describe('PostgreSQL authentication', () => {
       client = await pool.connect()
       await client.query(`CREATE SCHEMA "${name}"`)
       await client.query(`SET search_path TO "${name}"`)
-      const sql = await readFile(
-        new URL('../../drizzle/0000_auth_users_sessions.sql', import.meta.url),
-        'utf8',
-      )
-      await client.query(sql.replaceAll('"public".', `"${name}".`))
+      const journal = JSON.parse(
+        await readFile(
+          new URL('../../drizzle/meta/_journal.json', import.meta.url),
+          'utf8',
+        ),
+      ) as { entries: { tag: string }[] }
+      for (const { tag } of journal.entries) {
+        const sql = await readFile(
+          new URL(`../../drizzle/${tag}.sql`, import.meta.url),
+          'utf8',
+        )
+        await client.query(sql.replaceAll('"public".', `"${name}".`))
+      }
       const db = drizzle(client, { schema })
       await seedUsers(db)
       const original = await db
