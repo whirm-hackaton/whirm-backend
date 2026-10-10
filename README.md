@@ -29,7 +29,7 @@ Les variables déjà définies dans le processus ont priorité sur `.env`.
 - `src/index.ts` : démarrage HTTP.
 
 La route `/health` retourne `{ "status": "ok" }` sans vérifier PostgreSQL.
-Les tables métier et les routes auth/wallet seront ajoutées ensuite.
+Les routes d’authentification sont disponibles sous `/auth`. Les routes wallet seront ajoutées ensuite.
 
 ## Commandes
 
@@ -46,8 +46,7 @@ Les tables métier et les routes auth/wallet seront ajoutées ensuite.
 | `pnpm db:migrate`                   | Application des migrations existantes            |
 | `pnpm db:studio`                    | Exploration de la base                           |
 
-Le schéma est volontairement vide : aucune migration initiale n'est nécessaire.
-Les migrations générées seront conservées dans `drizzle/` et versionnées.
+Le schéma contient les tables `users` et `sessions`. Les migrations générées sont conservées dans `drizzle/` et versionnées.
 
 Pour vérifier la connexion locale après le lancement de PostgreSQL :
 
@@ -56,3 +55,33 @@ docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SEL
 ```
 
 Pour arrêter PostgreSQL tout en conservant ses données : `docker compose down`.
+
+## Authentification de démonstration
+
+Après le démarrage de PostgreSQL :
+
+```bash
+pnpm db:migrate
+pnpm db:seed
+```
+
+Le seeder crée Alice (`alice@example.test`) et Bob (`bob@example.test`) avec le mot de passe fictif `Hackaton2026!`. Il peut être relancé : les comptes existants restent inchangés. Il refuse de s’exécuter lorsque `NODE_ENV=production`.
+
+- `POST /auth/login` : corps JSON `{ "email": "alice@example.test", "password": "Hackaton2026!" }`, réponse `{ "user": { "id": "…", "email": "alice@example.test", "displayName": "Alice" } }`.
+- `GET /auth/me` : même représentation de l’utilisateur, ou `401` sans session valide.
+- `POST /auth/logout` : révoque la session courante, efface le cookie et retourne `204`, même sans session.
+
+Le frontend doit envoyer `credentials: 'include'` avec ses requêtes `fetch`. Son origine doit figurer dans `CORS_ORIGINS` ; les POST avec une origine différente sont refusés. Le frontend et l’API doivent appartenir au même site (localhost sur deux ports, ou des sous-domaines du même domaine).
+
+Le cookie `session` est HttpOnly, SameSite=Lax et valable 24 heures, sans prolongation automatique. En production, il est Secure et nécessite HTTPS. Chaque connexion crée une session indépendante. Le serveur conserve seulement une empreinte SHA-256 du jeton aléatoire de 32 octets. Les mots de passe sont dérivés avec scrypt (`N=131072`, `r=8`, `p=1`), un sel aléatoire de 16 octets et une empreinte de 64 octets.
+
+Ces comptes sont destinés à la démonstration. L’inscription, la récupération des mots de passe et la limitation des tentatives ne font pas partie de cette version.
+
+Les tests nécessitent PostgreSQL, configuré dans `.env`. Le parcours d’authentification, la migration et le seeder sont vérifiés sur une base réelle à chaque exécution :
+
+```bash
+docker compose up -d --wait db
+pnpm test
+```
+
+Ce test crée un schéma temporaire isolé et le supprime à la fin ; l’utilisateur PostgreSQL doit disposer des permissions correspondantes.
