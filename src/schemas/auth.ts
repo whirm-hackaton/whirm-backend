@@ -6,6 +6,10 @@ export const LoginSchema = z
     password: z.string().min(1).max(1024),
   })
   .openapi('Login')
+export const SignupSchema = LoginSchema.extend({
+  password: z.string().min(8).max(1024),
+  displayName: z.string().trim().min(1).max(150),
+}).openapi('Signup')
 export const AuthResponseSchema = z
   .object({
     user: z.object({

@@ -5,6 +5,7 @@ import * as auth from '../services/auth.js'
 vi.mock('../services/auth.js', async (importOriginal) => ({
   ...(await importOriginal<typeof auth>()),
   login: vi.fn(),
+  signup: vi.fn(),
   getCurrentUser: vi.fn(),
   logout: vi.fn(),
 }))
@@ -17,6 +18,10 @@ const user = {
 function setup(secure = false) {
   vi.clearAllMocks()
   vi.mocked(auth.login).mockResolvedValue({ user, token: 'test-session-token' })
+  vi.mocked(auth.signup).mockResolvedValue({
+    user,
+    token: 'test-session-token',
+  })
   vi.mocked(auth.getCurrentUser).mockResolvedValue(user)
   vi.mocked(auth.logout).mockResolvedValue(undefined)
   return { service: auth, app: createApp(['http://localhost:5173'], secure) }
@@ -27,6 +32,82 @@ const login = (body: unknown, origin = 'http://localhost:5173') => ({
   body: JSON.stringify(body),
 })
 describe('authentication HTTP routes', () => {
+  it('signs up with normalized input and a secure session cookie', async () => {
+    const { app, service } = setup(true)
+    const response = await app.request(
+      '/auth/signup',
+      login({
+        email: ' ALICE@example.test ',
+        password: 'password123',
+        displayName: ' Alice ',
+      }),
+    )
+    expect(response.status).toBe(201)
+    expect(service.signup).toHaveBeenCalledWith(
+      user.email,
+      'password123',
+      'Alice',
+    )
+    expect(await response.json()).toEqual({ user })
+    for (const attribute of [
+      'session=test-session-token',
+      'HttpOnly',
+      'Secure',
+      'SameSite=Lax',
+      'Path=/',
+      'Max-Age=86400',
+    ])
+      expect(response.headers.get('set-cookie')).toContain(attribute)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+  })
+  it.each([
+    { email: 'bad', password: 'password123', displayName: 'Alice' },
+    { email: user.email, password: 'short', displayName: 'Alice' },
+    { email: user.email, password: 'password123', displayName: ' ' },
+    {
+      email: user.email,
+      password: 'password123',
+      displayName: 'a'.repeat(151),
+    },
+  ])('rejects invalid signup input: %j', async (body) => {
+    const { app, service } = setup()
+    expect((await app.request('/auth/signup', login(body))).status).toBe(400)
+    expect(service.signup).not.toHaveBeenCalled()
+  })
+  it('rejects duplicate emails without setting a cookie', async () => {
+    const { app, service } = setup()
+    vi.mocked(service.signup).mockResolvedValue(null)
+    const response = await app.request(
+      '/auth/signup',
+      login({
+        email: user.email,
+        password: 'password123',
+        displayName: 'Alice',
+      }),
+    )
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'Email already registered' })
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
+  it('rejects untrusted signup origins', async () => {
+    const { app, service } = setup()
+    expect(
+      (
+        await app.request(
+          '/auth/signup',
+          login(
+            {
+              email: user.email,
+              password: 'password123',
+              displayName: 'Alice',
+            },
+            'https://other.example',
+          ),
+        )
+      ).status,
+    ).toBe(403)
+    expect(service.signup).not.toHaveBeenCalled()
+  })
   it('normalizes email, returns a public user and sets a secure cookie', async () => {
     const { app, service } = setup(true)
     const response = await app.request(
@@ -169,7 +250,12 @@ describe('authentication HTTP routes', () => {
       components: { securitySchemes: Record<string, unknown> }
     }
     expect(Object.keys(doc.paths)).toEqual(
-      expect.arrayContaining(['/auth/login', '/auth/me', '/auth/logout']),
+      expect.arrayContaining([
+        '/auth/signup',
+        '/auth/login',
+        '/auth/me',
+        '/auth/logout',
+      ]),
     )
     expect(doc.components.securitySchemes.sessionCookie).toEqual({
       type: 'apiKey',

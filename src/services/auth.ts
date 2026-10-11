@@ -16,6 +16,30 @@ const tokenHash = (token: string) =>
 // Match unknown-user password work to avoid a cheap email-enumeration signal.
 let dummyHash: Promise<string> | undefined
 
+export async function signup(
+  email: string,
+  password: string,
+  displayName: string,
+) {
+  const { db } = await import('../db/pool.js')
+  const passwordHash = await hashPassword(password)
+  return db.transaction(async (tx) => {
+    const [user] = await tx
+      .insert(users)
+      .values({ email, passwordHash, displayName })
+      .onConflictDoNothing({ target: users.email })
+      .returning(publicUser)
+    if (!user) return null
+    const token = randomBytes(32).toString('base64url')
+    await tx.insert(sessions).values({
+      userId: user.id,
+      tokenHash: tokenHash(token),
+      expiresAt: new Date(Date.now() + sessionLifetime * 1000),
+    })
+    return { user, token }
+  })
+}
+
 export async function login(email: string, password: string) {
   const { db } = await import('../db/pool.js')
   const [user] = await db

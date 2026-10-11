@@ -88,6 +88,42 @@ describe('PostgreSQL authentication', () => {
         .from(schema.sessions)
         .where(eq(schema.sessions.id, session.id))
       expect(revoked.revokedAt).toBeInstanceOf(Date)
+      const signupBody = {
+        email: ' CHARLIE@example.test ',
+        password: 'Signup2026!',
+        displayName: ' Charlie ',
+      }
+      const signup = () =>
+        app.request('/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(signupBody),
+        })
+      const registered = await signup()
+      expect(registered.status).toBe(201)
+      const registeredCookie = registered.headers
+        .get('set-cookie')!
+        .split(';')[0]
+      expect(
+        (
+          await app.request('/auth/me', {
+            headers: { Cookie: registeredCookie },
+          })
+        ).status,
+      ).toBe(200)
+      const [created] = await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.email, 'charlie@example.test'))
+      expect(created.displayName).toBe('Charlie')
+      expect(created.passwordHash).not.toBe(signupBody.password)
+      expect((await login(created.email, signupBody.password)).status).toBe(200)
+      const sessionCount = (await db.select().from(schema.sessions)).length
+      expect((await signup()).status).toBe(409)
+      expect((await db.select().from(schema.sessions)).length).toBe(
+        sessionCount,
+      )
+      expect(await db.select().from(schema.users)).toHaveLength(3)
       const second = await login('bob@example.test', 'Hackaton2026!')
       const secondCookie = second.headers.get('set-cookie')!.split(';')[0]
       await db.update(schema.sessions).set({ expiresAt: new Date(0) })

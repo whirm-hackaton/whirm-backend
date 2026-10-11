@@ -5,9 +5,11 @@ import {
   AuthErrorSchema,
   AuthResponseSchema,
   LoginSchema,
+  SignupSchema,
 } from '../schemas/auth.js'
 import {
   login,
+  signup,
   getCurrentUser,
   logout,
   sessionLifetime,
@@ -33,6 +35,38 @@ const cookieOptions = {
   sameSite: 'Lax' as const,
   path: '/',
 }
+
+auth.openapi(
+  createRoute({
+    method: 'post',
+    path: '/signup',
+    tags: ['Auth'],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: SignupSchema } },
+      },
+    },
+    responses: {
+      201: success,
+      400: jsonError('Invalid request'),
+      403: jsonError('Origin forbidden'),
+      409: jsonError('Email already registered'),
+      500: jsonError('Internal server error'),
+    },
+  }),
+  async (c) => {
+    const { email, password, displayName } = c.req.valid('json')
+    const result = await signup(email, password, displayName)
+    if (!result) return c.json({ error: 'Email already registered' }, 409)
+    setCookie(c, 'session', result.token, {
+      ...cookieOptions,
+      secure: c.get('secureCookies'),
+      maxAge: sessionLifetime,
+    })
+    return c.json({ user: result.user }, 201)
+  },
+)
 
 auth.openapi(
   createRoute({
