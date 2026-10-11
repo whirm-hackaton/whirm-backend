@@ -1,18 +1,8 @@
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import { AuthErrorSchema } from '../schemas/auth.js'
-import {
-  CreateWalletSchema,
-  WalletListSchema,
-  WalletParamsSchema,
-  WalletResponseSchema,
-} from '../schemas/wallets.js'
+import { CreateWalletSchema, WalletResponseSchema } from '../schemas/wallets.js'
 import type { AppEnv } from '../app.js'
-import {
-  createWallet,
-  getVerifiedWallet,
-  getWallet,
-  listWallets,
-} from '../services/wallets.js'
+import { createWallet, getWallet } from '../services/wallets.js'
 import type { wallets } from '../db/schema.js'
 
 const errorResponse = (description: string) => ({
@@ -46,7 +36,7 @@ const routes = new OpenAPIHono<AppEnv>({
 routes.openapi(
   createRoute({
     ...metadata,
-    method: 'post',
+    method: 'put',
     path: '/',
     request: {
       body: {
@@ -59,7 +49,9 @@ routes.openapi(
       200: success,
       201: success,
       403: errorResponse('Origin forbidden'),
-      409: errorResponse('Wallet already associated'),
+      409: errorResponse(
+        'User already has a wallet or address already associated',
+      ),
     },
   }),
   async (c) => {
@@ -80,52 +72,12 @@ routes.openapi(
     path: '/',
     responses: {
       ...errors,
-      200: {
-        description: 'Current user wallets',
-        content: { 'application/json': { schema: WalletListSchema } },
-      },
-    },
-  }),
-  async (c) =>
-    c.json(
-      { wallets: (await listWallets(c.get('user').id)).map(serialize) },
-      200,
-    ),
-)
-
-routes.openapi(
-  createRoute({
-    ...metadata,
-    method: 'get',
-    path: '/verified',
-    responses: {
-      ...errors,
       200: success,
       404: errorResponse('Wallet not found'),
     },
   }),
   async (c) => {
-    const wallet = await getVerifiedWallet(c.get('user').id)
-    return wallet
-      ? c.json({ wallet: serialize(wallet) }, 200)
-      : c.json({ error: 'Wallet not found' }, 404)
-  },
-)
-
-routes.openapi(
-  createRoute({
-    ...metadata,
-    method: 'get',
-    path: '/{id}',
-    request: { params: WalletParamsSchema },
-    responses: {
-      ...errors,
-      200: success,
-      404: errorResponse('Wallet not found'),
-    },
-  }),
-  async (c) => {
-    const wallet = await getWallet(c.get('user').id, c.req.valid('param').id)
+    const wallet = await getWallet(c.get('user').id)
     return wallet
       ? c.json({ wallet: serialize(wallet) }, 200)
       : c.json({ error: 'Wallet not found' }, 404)

@@ -15,6 +15,13 @@
       "when": 1791664438845,
       "tag": "0001_add_wallet_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791673936110,
+      "tag": "0002_one_wallet_per_user",
+      "breakpoints": true
     }
   ]
 }

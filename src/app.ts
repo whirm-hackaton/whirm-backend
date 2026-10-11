@@ -29,7 +29,7 @@ export function createApp(corsOrigins: string[] = [], secureCookies = false) {
     c.header('Cache-Control', 'no-store')
     c.set('secureCookies', secureCookies)
 
-    if (c.req.path === '/wallets' || c.req.path.startsWith('/wallets/')) {
+    if (c.req.path === '/wallet' || c.req.path.startsWith('/wallet/')) {
       const token = getCookie(c, 'session')
       const user = token ? await getCurrentUser(token) : null
 
@@ -40,14 +40,18 @@ export function createApp(corsOrigins: string[] = [], secureCookies = false) {
 
     const origin = c.req.header('Origin')
 
-    if (c.req.method === 'POST' && origin && !corsOrigins.includes(origin))
+    if (
+      ['POST', 'PUT'].includes(c.req.method) &&
+      origin &&
+      !corsOrigins.includes(origin)
+    )
       return c.json({ error: 'Origin forbidden' }, 403)
 
     await next()
   }
 
   app.use('/auth/*', protect)
-  app.use('/wallets/*', protect)
+  app.use('/wallet/*', protect)
 
   app.route('/health', health)
 
@@ -58,7 +62,7 @@ export function createApp(corsOrigins: string[] = [], secureCookies = false) {
   })
 
   app.route('/auth', auth)
-  app.route('/wallets', wallets)
+  app.route('/wallet', wallets)
 
   app.doc('/doc', {
     openapi: '3.0.0',

@@ -70,8 +70,8 @@ describe('PostgreSQL wallets', () => {
       })
       const address = (digit: string) => `0x${digit.repeat(40)}`
       const post = (addr: string, user = alice) =>
-        app.request('/wallets', {
-          method: 'POST',
+        app.request('/wallet', {
+          method: 'PUT',
           headers: headers(user),
           body: JSON.stringify({ address: addr, chainId: 84532 }),
         })
@@ -96,18 +96,13 @@ describe('PostgreSQL wallets', () => {
       const id = bodies[0].wallet.id
       expect((await post(address('a'), bob)).status).toBe(409)
       expect(
-        (await app.request(`/wallets/${id}`, { headers: headers(bob) })).status,
+        (await app.request('/wallet', { headers: headers(bob) })).status,
       ).toBe(404)
+      const current = await app.request('/wallet', { headers: headers() })
+      expect(current.status).toBe(200)
       expect(
-        (await app.request(`/wallets/${randomUUID()}`, { headers: headers() }))
-          .status,
-      ).toBe(404)
-      expect(
-        await (await app.request('/wallets', { headers: headers(bob) })).json(),
-      ).toEqual({ wallets: [] })
-      expect(
-        (await app.request('/wallets/verified', { headers: headers() })).status,
-      ).toBe(404)
+        ((await current.json()) as { wallet: { id: string } }).wallet.id,
+      ).toBe(id)
       const competing = await Promise.all([
         post(address('b')),
         post(address('b'), bob),
@@ -115,12 +110,46 @@ describe('PostgreSQL wallets', () => {
       expect(competing.map((response) => response.status).sort()).toEqual([
         201, 409,
       ])
-      const second = await post(address('c'))
-      expect(second.status).toBe(201)
-      const { wallet: secondWallet } = (await second.json()) as {
-        wallet: { id: string }
-      }
-      const values = { userId: alice.id, address: address('d'), chainId: 84532 }
+      expect((await post(address('c'))).status).toBe(409)
+      const [charlie, diana] = await db
+        .insert(schema.users)
+        .values([
+          {
+            email: 'charlie@example.test',
+            displayName: 'Charlie',
+            passwordHash: 'test-only',
+          },
+          {
+            email: 'diana@example.test',
+            displayName: 'Diana',
+            passwordHash: 'test-only',
+          },
+        ])
+        .returning()
+      await db.insert(schema.sessions).values({
+        userId: charlie.id,
+        tokenHash: createHash('sha256').update(charlie.id).digest('hex'),
+        expiresAt: new Date(Date.now() + 60000),
+      })
+      const sameUser = await Promise.all([
+        post(address('c'), charlie),
+        post(address('d'), charlie),
+      ])
+      expect(sameUser.map((response) => response.status).sort()).toEqual([
+        201, 409,
+      ])
+      expect(
+        await db
+          .select()
+          .from(schema.wallets)
+          .where(eq(schema.wallets.userId, charlie.id)),
+      ).toHaveLength(1)
+      await expect(
+        db
+          .insert(schema.wallets)
+          .values({ userId: alice.id, address: address('e'), chainId: 84532 }),
+      ).rejects.toThrow()
+      const values = { userId: diana.id, address: address('d'), chainId: 84532 }
       for (const invalid of [
         { ...values, address: address('D') },
         { ...values, chainId: 1 },
@@ -137,23 +166,19 @@ describe('PostgreSQL wallets', () => {
         .update(schema.wallets)
         .set({ status: 'verified', verifiedAt: new Date() })
         .where(eq(schema.wallets.id, id))
-      await expect(
-        db
-          .update(schema.wallets)
-          .set({ status: 'verified', verifiedAt: new Date() })
-          .where(eq(schema.wallets.id, secondWallet.id)),
-      ).rejects.toThrow()
-      const verified = await app.request('/wallets/verified', {
+      const verified = await app.request('/wallet', {
         headers: headers(),
       })
       expect(verified.status).toBe(200)
       expect(
         ((await verified.json()) as { wallet: { id: string } }).wallet.id,
       ).toBe(id)
+      const bobWallet = await app.request('/wallet', { headers: headers(bob) })
+      expect(bobWallet.status).toBe(200)
       expect(
-        (await app.request('/wallets/verified', { headers: headers(bob) }))
-          .status,
-      ).toBe(404)
+        ((await bobWallet.json()) as { wallet: { userId: string } }).wallet
+          .userId,
+      ).toBe(bob.id)
       const challenge = {
         walletId: id,
         challengeHash: 'a'.repeat(64),
@@ -172,7 +197,7 @@ describe('PostgreSQL wallets', () => {
       ).rejects.toThrow()
       await db.update(schema.sessions).set({ expiresAt: new Date(0) })
       expect(
-        (await app.request('/wallets', { headers: headers() })).status,
+        (await app.request('/wallet', { headers: headers() })).status,
       ).toBe(401)
     } finally {
       if (originalOptions === undefined) delete process.env.PGOPTIONS

@@ -9,9 +9,7 @@ vi.mock('../services/auth.js', async (original) => ({
 }))
 vi.mock('../services/wallets.js', () => ({
   createWallet: vi.fn(),
-  listWallets: vi.fn(),
   getWallet: vi.fn(),
-  getVerifiedWallet: vi.fn(),
 }))
 
 const user = {
@@ -29,8 +27,8 @@ const wallet = {
   verifiedAt: null,
 }
 const headers = { Cookie: 'session=test', 'Content-Type': 'application/json' }
-const post = (body: unknown) => ({
-  method: 'POST',
+const put = (body: unknown) => ({
+  method: 'PUT',
   headers,
   body: JSON.stringify(body),
 })
@@ -40,16 +38,14 @@ beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(getCurrentUser).mockResolvedValue(user)
   vi.mocked(service.createWallet).mockResolvedValue({ wallet, created: true })
-  vi.mocked(service.listWallets).mockResolvedValue([])
   vi.mocked(service.getWallet).mockResolvedValue(null)
-  vi.mocked(service.getVerifiedWallet).mockResolvedValue(null)
 })
 
 describe('wallet HTTP routes', () => {
   it('normalizes the address and creates a candidate for the session user', async () => {
     const response = await app.request(
-      '/wallets',
-      post({ address: `0x${'A'.repeat(40)}`, chainId: 84532 }),
+      '/wallet',
+      put({ address: `0x${'A'.repeat(40)}`, chainId: 84532 }),
     )
     expect(response.status).toBe(201)
     expect(service.createWallet).toHaveBeenCalledWith(
@@ -70,15 +66,15 @@ describe('wallet HTTP routes', () => {
     expect(
       (
         await app.request(
-          '/wallets',
-          post({ address: wallet.address, chainId: 84532 }),
+          '/wallet',
+          put({ address: wallet.address, chainId: 84532 }),
         )
       ).status,
     ).toBe(200)
     vi.mocked(service.createWallet).mockResolvedValue(null)
     const response = await app.request(
-      '/wallets',
-      post({ address: wallet.address, chainId: 84532 }),
+      '/wallet',
+      put({ address: wallet.address, chainId: 84532 }),
     )
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({
@@ -93,104 +89,77 @@ describe('wallet HTTP routes', () => {
     { address: wallet.address, chainId: 84532, userId: user.id },
     { address: wallet.address, chainId: 84532, privateKey: 'secret' },
   ])('rejects invalid input: %j', async (body) => {
-    expect((await app.request('/wallets', post(body))).status).toBe(400)
+    expect((await app.request('/wallet', put(body))).status).toBe(400)
     expect(service.createWallet).not.toHaveBeenCalled()
   })
-  it('rejects malformed JSON and invalid identifiers', async () => {
+  it('rejects malformed JSON', async () => {
     expect(
-      (await app.request('/wallets', { method: 'POST', headers, body: '{' }))
+      (await app.request('/wallet', { method: 'PUT', headers, body: '{' }))
         .status,
     ).toBe(400)
-    expect((await app.request('/wallets/invalid', { headers })).status).toBe(
-      400,
-    )
-    expect(service.getWallet).not.toHaveBeenCalled()
+    expect(service.createWallet).not.toHaveBeenCalled()
   })
-  it('authenticates every endpoint before validation', async () => {
-    for (const path of [
-      '/wallets',
-      '/wallets/verified',
-      `/wallets/${wallet.id}`,
-    ])
-      expect((await app.request(path)).status).toBe(401)
+  it('authenticates GET and PUT before validation', async () => {
+    expect((await app.request('/wallet')).status).toBe(401)
     expect(
       (
-        await app.request('/wallets', {
-          method: 'POST',
+        await app.request('/wallet', {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: '{',
         })
       ).status,
     ).toBe(401)
     vi.mocked(getCurrentUser).mockResolvedValue(null)
-    expect((await app.request('/wallets', { headers })).status).toBe(401)
-    expect(service.listWallets).not.toHaveBeenCalled()
-  })
-  it('lists only the current user wallets and returns 404 for missing or foreign wallets', async () => {
-    expect(await (await app.request('/wallets', { headers })).json()).toEqual({
-      wallets: [],
-    })
-    expect(service.listWallets).toHaveBeenCalledWith(user.id)
-    expect(
-      (await app.request(`/wallets/${wallet.id}`, { headers })).status,
-    ).toBe(404)
-    expect(service.getWallet).toHaveBeenCalledWith(user.id, wallet.id)
-    vi.mocked(service.getWallet).mockResolvedValue(wallet)
-    expect(
-      (await app.request(`/wallets/${wallet.id}`, { headers })).status,
-    ).toBe(200)
-  })
-  it('resolves verified as a static route and returns only a verified wallet', async () => {
-    expect((await app.request('/wallets/verified', { headers })).status).toBe(
-      404,
-    )
-    expect(service.getVerifiedWallet).toHaveBeenCalledWith(user.id)
+    expect((await app.request('/wallet', { headers })).status).toBe(401)
     expect(service.getWallet).not.toHaveBeenCalled()
-    vi.mocked(service.getVerifiedWallet).mockResolvedValue({
-      ...wallet,
-      status: 'verified',
-      verifiedAt: new Date(),
+  })
+  it('returns the current user wallet or 404 when none exists', async () => {
+    expect((await app.request('/wallet', { headers })).status).toBe(404)
+    expect(service.getWallet).toHaveBeenCalledWith(user.id)
+    vi.mocked(service.getWallet).mockResolvedValue(wallet)
+    const response = await app.request('/wallet', { headers })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      wallet: { ...wallet, createdAt: wallet.createdAt.toISOString() },
     })
-    expect((await app.request('/wallets/verified', { headers })).status).toBe(
-      200,
-    )
   })
   it('blocks foreign origins and hides internal errors', async () => {
     expect(
       (
-        await app.request('/wallets', {
-          ...post({ address: wallet.address, chainId: 84532 }),
+        await app.request('/wallet', {
+          ...put({ address: wallet.address, chainId: 84532 }),
           headers: { ...headers, Origin: 'https://other.example' },
         })
       ).status,
     ).toBe(403)
     expect(service.createWallet).not.toHaveBeenCalled()
-    vi.mocked(service.listWallets).mockRejectedValue(
-      new Error('database detail'),
-    )
+    vi.mocked(service.getWallet).mockRejectedValue(new Error('database detail'))
     const logger = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const response = await app.request('/wallets', { headers })
+      const response = await app.request('/wallet', { headers })
       expect(response.status).toBe(500)
       expect(await response.json()).toEqual({ error: 'Internal server error' })
     } finally {
       logger.mockRestore()
     }
   })
-  it('documents all four authenticated routes', async () => {
+  it('documents only GET and PUT for the current wallet', async () => {
     const doc = (await (await app.request('/doc')).json()) as {
       paths: Record<string, Record<string, { security: unknown }>>
     }
-    for (const path of ['/wallets', '/wallets/{id}', '/wallets/verified']) {
-      expect(doc.paths[path].get.security).toEqual([{ sessionCookie: [] }])
-    }
-    expect(doc.paths['/wallets'].post.security).toEqual([{ sessionCookie: [] }])
+    expect(Object.keys(doc.paths['/wallet']).sort()).toEqual(['get', 'put'])
+    for (const method of ['get', 'put'])
+      expect(doc.paths['/wallet'][method].security).toEqual([
+        { sessionCookie: [] },
+      ])
+    expect(doc.paths['/wallets']).toBeUndefined()
   })
   it('hides session lookup errors from app middleware', async () => {
     vi.mocked(getCurrentUser).mockRejectedValue(new Error('database detail'))
     const logger = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const response = await app.request('/wallets', { headers })
+      const response = await app.request('/wallet', { headers })
       expect(response.status).toBe(500)
       expect(await response.json()).toEqual({ error: 'Internal server error' })
       expect(response.headers.get('cache-control')).toBe('no-store')

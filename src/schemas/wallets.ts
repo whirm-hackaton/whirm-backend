@@ -25,7 +25,3 @@ export const WalletSchema = z
 export const WalletResponseSchema = z
   .object({ wallet: WalletSchema })
   .openapi('WalletResponse')
-export const WalletListSchema = z
-  .object({ wallets: z.array(WalletSchema) })
-  .openapi('WalletList')
-export const WalletParamsSchema = z.object({ id: z.uuid() })

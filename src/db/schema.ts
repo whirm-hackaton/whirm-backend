@@ -55,10 +55,7 @@ export const wallets = pgTable(
   },
   (table) => [
     uniqueIndex('wallets_address_chain_idx').on(table.address, table.chainId),
-    index('wallets_user_id_idx').on(table.userId),
-    uniqueIndex('wallets_verified_user_idx')
-      .on(table.userId)
-      .where(sql`${table.status} = 'verified'`),
+    uniqueIndex('wallets_user_id_idx').on(table.userId),
     check('wallets_address_check', sql`${table.address} ~ '^0x[0-9a-f]{40}$'`),
     check('wallets_chain_check', sql`${table.chainId} = 84532`),
     check(
