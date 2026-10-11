@@ -21,13 +21,39 @@ Configuration is defined in `.env`: the API runs on port 3000 and PostgreSQL on 
 - API documentation: http://localhost:3000/ui (OpenAPI: `/doc`)
 - Demo accounts: `alice@example.test` and `bob@example.test`, password `Hackaton2026!`.
 
+## Docker setup
+
+Run these commands from `whirm-backend`. Node.js 24 and pnpm 11.28.5 are still required on the host for manual migrations and seeding.
+
+```bash
+pnpm install --frozen-lockfile
+cp .env.example .env
+docker compose up -d --wait db
+pnpm db:migrate
+pnpm db:seed
+docker compose up -d --build api
+```
+
+Keep your existing `.env` if already configured. Migrations and seeding are manual; the API container does not run them. For later schema updates, apply migrations before starting the updated API.
+
+The API image uses Node.js 24 and contains only production dependencies and compiled code. Compose runs it in production mode on `${PORT:-3000}` and connects it to `db:5432`; the host commands continue using `POSTGRES_HOST=localhost` and `POSTGRES_PORT=5433` from `.env`.
+
+`/health` and the API documentation are accessible over local HTTP. Authentication in production requires HTTPS because session cookies are secure; provide HTTPS when using authentication with this Docker setup.
+
+```bash
+docker compose logs -f api
+docker compose down
+```
+
+Stopping the stack preserves the PostgreSQL volume.
+
 ## Useful commands
 
 - `pnpm build` then `pnpm start`: compile and run the API.
 - `pnpm typecheck`, `pnpm lint`, `pnpm format:check`: check the code.
 - `pnpm test`: run the tests (PostgreSQL must be running).
 - `pnpm db:generate` then `pnpm db:migrate`: generate and apply migrations.
-- `docker compose down`: stop PostgreSQL while preserving its data.
+- `docker compose down`: stop the stack while preserving PostgreSQL data.
 
 ## Usage
 

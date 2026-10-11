@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.git/
+.agents/
+.codex/
+.env*
+logs/
+*.log
+.vscode/
+.idea/
+.DS_Store
+docker-compose.yml
+README.md
