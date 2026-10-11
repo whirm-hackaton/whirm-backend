@@ -8,9 +8,9 @@ services:
     ports:
       - '${PORT:-3000}:3000'
     depends_on:
-      db:
-        condition: service_healthy
-    environment:
+      setup:
+        condition: service_completed_successfully
+    environment: &api_environment
       PORT: 3000
       NODE_ENV: production
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
@@ -20,6 +20,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-whirm_backend}
       POSTGRES_SSL: 'false'
+
+  setup:
+    container_name: whirm-backend-setup
+    build:
+      context: .
+      target: builder
+    restart: 'no'
+    command: ['sh', '-c', 'pnpm db:migrate && pnpm db:seed']
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *api_environment
+      NODE_ENV: development
 
   db:
     container_name: whirm-backend-db
